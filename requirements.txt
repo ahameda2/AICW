@@ -1,0 +1,12 @@
+streamlit
+streamlit-chat
+huggingface-hub
+PyPDF2
+pypdf
+langchain
+transformers
+torch
+langchain-community
+sentence-transformers
+CTransformers
+chromadb
