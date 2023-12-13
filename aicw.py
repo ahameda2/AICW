@@ -113,6 +113,9 @@ if uploaded_files:
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token)
 
+    # Move the model to the specified device
+    model.to(DEVICE)
+
     # Set up the text generation model
     text_generator = pipeline('text-generation', model=model_name, device=DEVICE, max_new_tokens=50)
 
