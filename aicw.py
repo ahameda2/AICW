@@ -99,8 +99,8 @@ if uploaded_files:
 
     # Initialize the model and tokenizer for conversational AI
     model_name = "meta-llama/Llama-2-7b-hf"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, device=DEVICE)
-    model = AutoModelForCausalLM.from_pretrained(model_name, device=DEVICE)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, device=DEVICE, use_auth_token=hf_token)
+    model = AutoModelForCausalLM.from_pretrained(model_name, device=DEVICE, use_auth_token=hf_token)
 
     # Set up the text generation model
     text_generator = pipeline('text-generation', model=model_name, device=DEVICE, max_new_tokens=50)
