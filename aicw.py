@@ -77,6 +77,18 @@ with st.sidebar:
 # Main Page Interface
 st.header("Chat with Multiple PDFs 📚")
 
+
+def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"  # For Apple Silicon GPUs
+    else:
+        return "cpu"
+
+
+DEVICE = get_device()
+
 # Processing PDFs
 if uploaded_files:
 
@@ -85,7 +97,6 @@ if uploaded_files:
 
     # Combine all texts and split into chunks
     combined_text = " ".join([doc.page_content for doc in documents])
-    DEVICE = "cuda"  # Use "cuda" for GPU
     embeddings = HuggingFaceInstructEmbeddings(
         model_name="hkunlp/instructor-large", model_kwargs={"device": DEVICE}
     )
@@ -99,8 +110,8 @@ if uploaded_files:
 
     # Initialize the model and tokenizer for conversational AI
     model_name = "meta-llama/Llama-2-7b-hf"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, device=DEVICE, use_auth_token=hf_token)
-    model = AutoModelForCausalLM.from_pretrained(model_name, device=DEVICE, use_auth_token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, model_kwargs={"device": DEVICE}, use_auth_token=hf_token)
+    model = AutoModelForCausalLM.from_pretrained(model_name, model_kwargs={"device": DEVICE}, use_auth_token=hf_token)
 
     # Set up the text generation model
     text_generator = pipeline('text-generation', model=model_name, device=DEVICE, max_new_tokens=50)
