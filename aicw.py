@@ -87,7 +87,7 @@ if uploaded_files:
     combined_text = " ".join([doc.page_content for doc in documents])
     DEVICE = "cuda"  # Use "cuda" for GPU
     embeddings = HuggingFaceInstructEmbeddings(
-        model_name="all-MiniLM-L6-v2", model_kwargs={"device": DEVICE}
+        model_name="hkunlp/instructor-large", model_kwargs={"device": DEVICE}
     )
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)
     split_text = text_splitter.split_documents(documents)
