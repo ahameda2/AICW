@@ -124,7 +124,7 @@ if uploaded_files:
 
     # Set up the conversational retrieval chain
     retriever = db.as_retriever()
-    chain = RetrievalQA.from_chain_type(llm=model, retriever=retriever, chain_type="stuff", return_source_documents=True)
+    chain = ConversationalRetrievalChain(llm=model, retriever=retriever, return_source_documents=True)
 
     def ans_gen(instruction):
         response = ''
