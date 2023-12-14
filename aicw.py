@@ -3,27 +3,28 @@ from huggingface_hub import notebook_login
 from PyPDF2 import PdfReader
 import io
 import os
-from langchain.embeddings import HuggingFaceInstructEmbeddings, SentenceTransformerEmbeddings
+import fs
+from langchain.embeddings import HuggingFaceInstructEmbeddings, SentenceTransformerEmbeddings, OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import Chroma
-from langchain.llms import CTransformers
+from langchain.vectorstores import Chroma, HNSWLib
+from langchain.llms import CTransformers, ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain, RetrievalQA
 from langchain.document_loaders import PyPDFLoader
+from langchain.prompts import PromptTemplate
+from langchain.schema.runnable import RunnableSequence
+from langchain.schema.output_parser import StrOutputParser
 import tempfile
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
-
 # Setting up the Streamlit page
 st.set_page_config(page_title="Chat with Multiple PDFs", page_icon="📚")
-
 
 # Define a class to hold the text and metadata with the expected attributes
 class Document:
     def __init__(self, text, metadata=None):
         self.page_content = text
         self.metadata = metadata if metadata is not None else {}
-
 
 # Define the function to read and extract text from a PDF byte stream
 def read_pdf(file_stream):
@@ -32,13 +33,6 @@ def read_pdf(file_stream):
     for page in reader.pages:
         text += page.extract_text() or ""  # Adding a fallback for pages with no text
     return text
-
-
-# Initialize session state variables
-#if 'chain' not in st.session_state:
-    #st.session_state.chain = None
-#if 'documents_processed' not in st.session_state:
-    #st.session_state.documents_processed = False
 
 # Sidebar for Hugging Face Login and PDF Upload
 with st.sidebar:
@@ -55,30 +49,9 @@ with st.sidebar:
 
     st.subheader("Your Documents")
     uploaded_files = st.file_uploader("Upload your PDFs here", accept_multiple_files=True, type='pdf')
-    if uploaded_files:
-        documents = []
-        for file in uploaded_files:
-            file_extensions = os.path.splitext(file.name)[1]
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                temp_file.write(file.read())
-                temp_file_path = temp_file.name
-
-            loader = None
-            if file_extensions == '.pdf':
-                loader = PyPDFLoader(temp_file_path)
-            else:
-                st.error(f"Unsupported file type: {file_extensions}")
-                st.stop()
-
-            if loader:
-                documents.extend(loader.load())
-                os.remove(temp_file_path)
-
-    #process_button = st.button("Process PDFs")
 
 # Main Page Interface
 st.header("Chat with Multiple PDFs 📚")
-
 
 def get_device():
     if torch.cuda.is_available():
@@ -88,13 +61,17 @@ def get_device():
     else:
         return "cpu"
 
-
 DEVICE = get_device()
 
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 
 # Processing PDFs
 if uploaded_files:
+    documents = []
+    for file in uploaded_files:
+        file_stream = io.BytesIO(file.getbuffer())
+        document_text = read_pdf(file_stream)
+        documents.append(Document(document_text))
 
     st.session_state.documents_processed = True
     st.success("PDFs processed successfully!")
@@ -118,49 +95,47 @@ if uploaded_files:
     model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token, torch_dtype='auto').to(DEVICE).half()
     max_seq_length = 128
 
-    # Set up the text generation model
-    text_generator = pipeline('text-generation', model=model_name, device=DEVICE, tokenizer=tokenizer,
-                              max_new_tokens=20, max_length=128)
+    # Define a function to format chat history
+    def formatChatHistory(human, ai, previousChatHistory=None):
+        newInteraction = f"Human: {human}\nAI: {ai}"
+        if not previousChatHistory:
+            return newInteraction
+        return f"{previousChatHistory}\n\n{newInteraction}"
 
-    # Set up the conversational retrieval chain
-    retriever = db.as_retriever()
-    chain = ConversationalRetrievalChain(llm=model, retriever=retriever, return_source_documents=True)
+    # Define a prompt template for generating an answer
+    questionPrompt = PromptTemplate.fromTemplate(
+        """Use the following pieces of context to answer the question at the end. 
+        If you don't know the answer, just say that you don't know, don't try to make up an answer.
+        ----------------
+        CONTEXT: {context}
+        ----------------
+        CHAT HISTORY: {chatHistory}
+        ----------------
+        QUESTION: {question}
+        ----------------
+        Helpful Answer:""")
 
-    def ans_gen(instruction):
-        response = ''
-        instruction = instruction
-        qa = chain
-        generated_text = qa(instruction)
-        answer = generated_text['result']
-        return answer
-
-    user_input = st.text_input("Ask a question about your documents:", key="input")
-
-    if "generated" not in st.session_state:
-        st.session_state["generated"] = ["Hello: I am a chatbot. Ask me a question."]
-
-    if "past" not in st.session_state:
-        st.session_state["past"] = ["Hello: I am a chatbot. Ask me a question."]
-
-    if user_input:
-        answer = ans_gen({"query": user_input})
-        st.session_state["past"].append(user_input)
-        response = answer
-        st.session_state["generated"].append(response)
-
-    if st.session_state["generated"]:
-        st.write("Chatbot:")
-        st.write(st.session_state["generated"][-1])
+    # Define the conversational chain
+    chain = RunnableSequence.from([
+        # Your existing code to process the question, chat history, and context
+        questionPrompt,
+        model,
+        StringOutputParser(),
+    ])
 
     # Chat interface
-    #if st.session_state.documents_processed:
-        #st.subheader("Chat with your PDFs")
-        #user_query = st.text_input("Ask a question about your documents:", key="user_query")
-        #if st.button("Submit"):
-            #if chain and user_query:
-                #result = chain({'question': user_query, 'chat_history': []})
-                #st.write('Answer:', result['answer'])
-            #else:
-                #st.warning("Please process PDFs before asking questions.")
-    #else:
-        #st.write("Please upload and process PDFs to enable the chat feature.")
+    st.subheader("Chat with your PDFs")
+    user_query = st.text_input("Ask a question about your documents:", key="user_query")
+    if st.button("Submit"):
+        if user_query:
+            context = combined_text  # Use combined text from documents
+            chat_history = formatChatHistory("User", user_query)  # Format chat history
+            result = chain.invoke({
+                'question': user_query,
+                'chatHistory': chat_history,
+                'context': context
+            })
+            st.write('Answer:', result['resultOne'])
+        else:
+            st.warning("Please enter a question.")
+
