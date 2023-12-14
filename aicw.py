@@ -13,6 +13,7 @@ import tempfile
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
+
 # Setting up the Streamlit page
 st.set_page_config(page_title="Chat with Multiple PDFs", page_icon="📚")
 
@@ -112,7 +113,7 @@ if uploaded_files:
     st.success("Embeddings processed and database created.")
 
     # Initialize the model and tokenizer for conversational AI
-    model_name = "meta-llama/Llama-2-7b-hf"
+    model_name = "meta-llama/Llama-2-7b-chat-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token, torch_dtype='auto')
     model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token, torch_dtype='auto').to(DEVICE).half()
     max_seq_length = 128
