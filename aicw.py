@@ -7,15 +7,15 @@ from langchain.embeddings import HuggingFaceInstructEmbeddings, SentenceTransfor
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
 from langchain.llms import CTransformers
-from langchain.chains import ConversationalRetrievalChain
+from langchain.chains import ConversationalRetrievalChain, RetrievalQA
 from langchain.document_loaders import PyPDFLoader
 import tempfile
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
-
 # Setting up the Streamlit page
 st.set_page_config(page_title="Chat with Multiple PDFs", page_icon="📚")
+
 
 # Define a class to hold the text and metadata with the expected attributes
 class Document:
@@ -32,11 +32,12 @@ def read_pdf(file_stream):
         text += page.extract_text() or ""  # Adding a fallback for pages with no text
     return text
 
+
 # Initialize session state variables
-if 'chain' not in st.session_state:
-    st.session_state.chain = None
-if 'documents_processed' not in st.session_state:
-    st.session_state.documents_processed = False
+#if 'chain' not in st.session_state:
+    #st.session_state.chain = None
+#if 'documents_processed' not in st.session_state:
+    #st.session_state.documents_processed = False
 
 # Sidebar for Hugging Face Login and PDF Upload
 with st.sidebar:
@@ -89,6 +90,8 @@ def get_device():
 
 DEVICE = get_device()
 
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+
 # Processing PDFs
 if uploaded_files:
 
@@ -97,8 +100,8 @@ if uploaded_files:
 
     # Combine all texts and split into chunks
     combined_text = " ".join([doc.page_content for doc in documents])
-    embeddings = HuggingFaceInstructEmbeddings(
-        model_name="hkunlp/instructor-large", model_kwargs={"device": DEVICE}
+    embeddings = SentenceTransformerEmbeddings(
+        model_name="all-MiniLM-L6-v2", model_kwargs={"device": DEVICE}
     )
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)
     split_text = text_splitter.split_documents(documents)
@@ -110,31 +113,53 @@ if uploaded_files:
 
     # Initialize the model and tokenizer for conversational AI
     model_name = "meta-llama/Llama-2-7b-hf"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
-    model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token)
-
-    # Move the model to the specified device
-    model.to(DEVICE)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token, torch_dtype='float16')
+    model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token, torch_dtype='float16').to(DEVICE).half()
+    max_seq_length = 128
 
     # Set up the text generation model
-    text_generator = pipeline('text-generation', model=model_name, device=DEVICE, max_new_tokens=50)
+    text_generator = pipeline('text-generation', model=model_name, device=DEVICE, tokenizer=tokenizer,
+                              max_new_tokens=20, max_length=128)
 
-    # Set up the retriever
-    retriever = db.as_retriever(search_kwargs={'k': 2})
+    # Set up the conversational retrieval chain
+    retriever = db.as_retriever()
+    chain = RetrievalQA.from_chain_type(llm=model, retriever=retriever, chain_type="stuff", return_source_documents=True)
 
-    # Create the ConversationalRetrievalChain
-    # This step might need to be adjusted based on how ConversationalRetrievalChain is implemented
-    st.session_state.chain = ConversationalRetrievalChain.from_llm(model, retriever, return_source_documents=True)
+    def ans_gen(instruction):
+        response = ''
+        instruction = instruction
+        qa = chain
+        generated_text = qa(instruction)
+        answer = generated_text['result']
+        return answer
 
-# Chat interface
-if st.session_state.documents_processed:
-    st.subheader("Chat with AI")
-    user_query = st.text_input("Ask a question about your documents:", key="user_query")
-    if st.button("Submit"):
-        if st.session_state.chain and user_query:
-            result = st.session_state.chain({'question': user_query, 'chat_history': []})
-            st.write('Answer:', result['answer'])
-        else:
-            st.warning("Please process PDFs before asking questions.")
-else:
-    st.write("Please upload and process PDFs to enable the chat feature.")
+    user_input = st.text_input("Ask a question about your documents:", key="input")
+
+    if "generated" not in st.session_state:
+        st.session_state["generated"] = ["Hello: I am a chatbot. Ask me a question."]
+
+    if "past" not in st.session_state:
+        st.session_state["past"] = ["Hello: I am a chatbot. Ask me a question."]
+
+    if user_input:
+        answer = ans_gen({"query": user_input})
+        st.session_state["past"].append(user_input)
+        response = answer
+        st.session_state["generated"].append(response)
+
+    if st.session_state["generated"]:
+        st.write("Chatbot:")
+        st.write(st.session_state["generated"][-1])
+
+    # Chat interface
+    #if st.session_state.documents_processed:
+        #st.subheader("Chat with your PDFs")
+        #user_query = st.text_input("Ask a question about your documents:", key="user_query")
+        #if st.button("Submit"):
+            #if chain and user_query:
+                #result = chain({'question': user_query, 'chat_history': []})
+                #st.write('Answer:', result['answer'])
+            #else:
+                #st.warning("Please process PDFs before asking questions.")
+    #else:
+        #st.write("Please upload and process PDFs to enable the chat feature.")
