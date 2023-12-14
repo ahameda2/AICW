@@ -113,8 +113,8 @@ if uploaded_files:
 
     # Initialize the model and tokenizer for conversational AI
     model_name = "meta-llama/Llama-2-7b-hf"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token, torch_dtype='float16')
-    model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token, torch_dtype='float16').to(DEVICE).half()
+    tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token, torch_dtype='auto')
+    model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token, torch_dtype='auto').to(DEVICE).half()
     max_seq_length = 128
 
     # Set up the text generation model
